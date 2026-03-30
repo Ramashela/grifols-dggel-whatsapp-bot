@@ -1,69 +1,49 @@
 import os
-from flask import Flask, request, jsonify
-import requests
+from flask import Flask, request
 from dotenv import load_dotenv
+from twilio.twiml.messaging_response import MessagingResponse
+
+# Import your AI function
 from rag import get_answer
 
+# Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
 
-VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
-WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
-PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
-
-# Webhook verification (Meta requirement)
-@app.route("/webhook", methods=["GET"])
-def verify():
-    token = request.args.get("hub.verify_token")
-    challenge = request.args.get("hub.challenge")
-
-    if token == VERIFY_TOKEN:
-        return challenge
-    return "Verification failed", 403
+@app.route("/", methods=["GET"])
+def home():
+    return "Grifols DG Gel WhatsApp Bot is running 🚀"
 
 
-# Handle incoming messages
 @app.route("/webhook", methods=["POST"])
-def webhook():
-    data = request.get_json()
-
+def whatsapp_reply():
     try:
-        message = data["entry"][0]["changes"][0]["value"]["messages"][0]
-        user_number = message["from"]
-        user_text = message["text"]["body"]
+        # Incoming message from WhatsApp
+        incoming_msg = request.form.get("Body", "").strip()
+        sender = request.form.get("From", "")
 
-        print(f"User: {user_text}")
+        print(f"[INCOMING] From: {sender} | Message: {incoming_msg}")
 
-        # Get AI response from RAG
-        response_text = get_answer(user_text)
+        # Default reply if empty message
+        if not incoming_msg:
+            reply = "Please send a valid message."
+        else:
+            # Get AI response from your RAG system
+            reply = get_answer(incoming_msg)
 
-        send_message(user_number, response_text)
+        print(f"[REPLY] {reply}")
 
     except Exception as e:
-        print("Error:", e)
+        print("[ERROR]", e)
+        reply = "⚠️ Sorry, something went wrong. Please try again."
 
-    return jsonify({"status": "ok"}), 200
+    # Twilio response
+    resp = MessagingResponse()
+    resp.message(reply)
 
-
-def send_message(to, text):
-    url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
-
-    headers = {
-        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
-        "Content-Type": "application/json"
-    }
-
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "text",
-        "text": {"body": text}
-    }
-
-    response = requests.post(url, headers=headers, json=payload)
-    print("WhatsApp response:", response.text)
+    return str(resp)
 
 
 if __name__ == "__main__":
-    app.run(port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)
